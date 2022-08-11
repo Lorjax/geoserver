@@ -38,6 +38,7 @@ import org.geotools.styling.Style;
 import org.geotools.styling.StyleBuilder;
 import org.geotools.styling.StyledLayerDescriptor;
 import org.geotools.styling.Symbolizer;
+import org.geotools.styling.ColorMapEntry;
 import org.geotools.styling.visitor.DuplicatingStyleVisitor;
 import org.geotools.util.logging.Logging;
 import org.opengis.filter.FilterFactory2;
@@ -67,7 +68,8 @@ public class RasterizerController extends BaseSLDServiceController {
         GRAY,
         JET,
         RANDOM,
-        CUSTOM
+        CUSTOM,
+        LAYER // meaning that we should use the one which is already present on the layer
     };
 
     public enum COLORMAP_TYPE {
@@ -136,8 +138,9 @@ public class RasterizerController extends BaseSLDServiceController {
             }
         }
 
+        // if no ramp is provided, try to use the one provided by the layer
         COLORRAMP_TYPE rampType =
-                (ramp != null ? COLORRAMP_TYPE.valueOf(ramp.toUpperCase()) : COLORRAMP_TYPE.RED);
+                (ramp != null ? COLORRAMP_TYPE.valueOf(ramp.toUpperCase()) : COLORRAMP_TYPE.LAYER);
 
         if (min == max) min = min - Double.MIN_VALUE;
 
@@ -272,7 +275,20 @@ public class RasterizerController extends BaseSLDServiceController {
                     }
                     break;
                 default:
-                    throw new IllegalArgumentException("Unknown ramp type: " + ramp);
+                    // let's see if we already have a color map provided by the layer
+                    // if that's the case, simply use that one
+                    // if not, throw exception
+                    if (rasterSymbolizer.getColorMap().getColorMapEntries().length > 1) {
+                        colorRamp = new CustomColorRamp();
+                        List<Color> colorList = new ArrayList<>();
+                        for (ColorMapEntry colorMapEntry :
+                                rasterSymbolizer.getColorMap().getColorMapEntries()) {
+                            colorList.add(Color.decode(colorMapEntry.getColor().toString()));
+                        }
+                        ((CustomColorRamp) colorRamp).setInputColors(colorList);
+                    } else {
+                        throw new IllegalArgumentException("Unknown ramp type: " + ramp);
+                    }
             }
             colorRamp.setNumClasses(classes);
 
@@ -291,6 +307,20 @@ public class RasterizerController extends BaseSLDServiceController {
 
         rasterSymbolizer.setColorMap(resampledColorMap);
         Style style = sb.createStyle("Feature", rasterSymbolizer);
+
+        // let's see if we have any rendering transformations in the default style
+        if (defaultStyle.getStyle().featureTypeStyles().size() > 0) {
+            if (defaultStyle.getStyle().featureTypeStyles().get(0).getTransformation() != null) {
+                style.featureTypeStyles()
+                        .get(0)
+                        .setTransformation(
+                                defaultStyle
+                                        .getStyle()
+                                        .featureTypeStyles()
+                                        .get(0)
+                                        .getTransformation());
+            }
+        }
 
         return style;
     }
