@@ -30,6 +30,7 @@ import org.geoserver.sldservice.utils.classifier.impl.RandomColorRamp;
 import org.geoserver.sldservice.utils.classifier.impl.RedColorRamp;
 import org.geotools.factory.CommonFactoryFinder;
 import org.geotools.styling.ColorMap;
+import org.geotools.styling.ColorMapEntry;
 import org.geotools.styling.FeatureTypeStyle;
 import org.geotools.styling.NamedLayer;
 import org.geotools.styling.RasterSymbolizer;
@@ -38,7 +39,6 @@ import org.geotools.styling.Style;
 import org.geotools.styling.StyleBuilder;
 import org.geotools.styling.StyledLayerDescriptor;
 import org.geotools.styling.Symbolizer;
-import org.geotools.styling.ColorMapEntry;
 import org.geotools.styling.visitor.DuplicatingStyleVisitor;
 import org.geotools.util.logging.Logging;
 import org.opengis.filter.FilterFactory2;
@@ -228,6 +228,13 @@ public class RasterizerController extends BaseSLDServiceController {
         ColorMap resampledColorMap = null;
 
         if (classes > 0) {
+            // dirty hack to ensure that the user cannot request more classes than the existing
+            // colormap has entries
+            int existingColorMapEntriesCount =
+                    rasterSymbolizer.getColorMap().getColorMapEntries().length;
+            if (existingColorMapEntriesCount < classes && ramp.equals(COLORRAMP_TYPE.LAYER)) {
+                classes = existingColorMapEntriesCount;
+            }
             final String[] labels = new String[classes + 1];
             final double[] quantities = new double[classes + 1];
 
@@ -310,6 +317,7 @@ public class RasterizerController extends BaseSLDServiceController {
 
         // let's see if we have any rendering transformations in the default style
         if (defaultStyle.getStyle().featureTypeStyles().size() > 0) {
+            // copy over rendering transformation
             if (defaultStyle.getStyle().featureTypeStyles().get(0).getTransformation() != null) {
                 style.featureTypeStyles()
                         .get(0)
@@ -319,6 +327,18 @@ public class RasterizerController extends BaseSLDServiceController {
                                         .featureTypeStyles()
                                         .get(0)
                                         .getTransformation());
+            }
+            // copy over maxScaleDenominator
+            if (defaultStyle.getStyle().featureTypeStyles().get(0).rules().size() > 0) {
+                double maxScale =
+                        defaultStyle
+                                .getStyle()
+                                .featureTypeStyles()
+                                .get(0)
+                                .rules()
+                                .get(0)
+                                .getMaxScaleDenominator();
+                style.featureTypeStyles().get(0).rules().get(0).setMaxScaleDenominator(maxScale);
             }
         }
 
